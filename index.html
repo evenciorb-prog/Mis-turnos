@@ -300,11 +300,12 @@ function tp(s){
   return h>23||n>59?"":p2(h)+":"+p2(n);
 }
 var MS=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-function pdt(s,y0){
+function pdt(s,y0,cx){
   s=String(s==null?"":s).trim().toLowerCase();var m,d,mo,y;
   if((m=/(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))){y=+m[1];mo=+m[2];d=+m[3]}
   else if((m=/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/.exec(s))){d=+m[1];mo=+m[2];y=+m[3];if(y<100)y+=2000}
   else if((m=/(\d{1,2})\s*(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\.?(?:\s*(?:de\s+)?(\d{4}))?/.exec(s))){d=+m[1];mo=MS.indexOf(m[2]==="set"?"sep":m[2])+1;y=m[3]?+m[3]:(y0||0)}
+  else if(cx&&(m=/^(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(\d{1,2})(?:\s*(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?)?$/.exec(s))){d=+m[1];mo=cx.m;y=cx.y}
   else return "";
   if(!y)return "";var f=y+"-"+p2(mo)+"-"+p2(d);return okDate(f)?f:"";
 }
@@ -324,29 +325,32 @@ function hmin(s){
   return null;
 }
 function dmin(s){s=String(s==null?"":s).trim();return /^\d+$/.test(s)?+s:hmin(s)}
-var HK=[["f",/fecha|d[ií]a\b/],["ini",/entrada|inicio|ingreso|desde|hora\s*ent/],["fin",/salida|t[eé]rmino|termino|hasta|hora\s*sal|\bfin\b/],["des",/descuent|colaci|descanso|atraso/],["rd",/diurn/],["rn",/noctur/],["tar",/tarifa|valor\s*(por\s*)?(hora|hr)|\$\s*\/\s*h/],["mon",/monto|total\s*(a\s*)?pag|l[ií]quido|bruto|remuneraci|haber|importe|pago|valor/],["rec",/reconocid|remunerad|pagad|horas|hrs|duraci|trabajad/]];
-function hrow(line,y0){
-  var f=pdt(line,y0);if(!f)return null;
-  var rest=line.replace(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{1,2}\s*(?:de\s+)?(?:ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\.?(?:\s*(?:de\s+)?\d{4})?/i," ");
+var HK=[["f",/fecha|d[ií]a\b/],["ini",/entrada|inicio|ingreso|desde|hora\s*ent/],["fin",/salida|t[eé]rmino|termino|hasta|hora\s*sal|\bfin\b/],["des",/descuent|colaci|descanso|atraso/],["rd",/diurn/],["rn",/noctur/],["tar",/tarifa|valor\s*(por\s*)?(hora|hr)|\$\s*\/\s*h/],["rec",/^\W*total\W*(horas?|hrs?)?\W*$|total\s*hor/],["mon",/monto|total\s*(a\s*)?pag|l[ií]quido|bruto|remuneraci|haber|importe|pago|valor/],["rec",/reconocid|remunerad|pagad|horas|hrs|duraci|trabajad/]];
+function hrow(line,y0,cx){
+  var f=pdt(line,y0),rest=null;
+  if(!f&&cx){var dm=/^\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(\d{1,2})(?![\d:.,\/-])\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(?=\D*\d{1,2}:\d{2})/i.exec(line);
+    if(dm){var f2=cx.y+"-"+p2(cx.m)+"-"+p2(+dm[1]);if(okDate(f2)){f=f2;rest=line.slice(dm[0].length)}}}
+  if(!f)return null;
+  if(rest==null)rest=line.replace(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{1,2}\s*(?:de\s+)?(?:ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\.?(?:\s*(?:de\s+)?\d{4})?/i," ");
   var mo=/\$\s*([\d.,]+)/.exec(rest),mon=mo?pnum(mo[1]):null;if(mo)rest=rest.replace(mo[0]," ");
   var tm=rest.match(/\b\d{1,2}:\d{2}\b/g)||[],ini=tm[0]?tp(tm[0]):"",fin=tm[1]?tp(tm[1]):"",rec=tm[2]?hmin(tm[2]):null;
   if(rec==null){var hm=/(\d+(?:[.,]\d+)?)\s*(?:h|hrs?|horas)\b/i.exec(rest);if(hm)rec=hmin(hm[1])}
   if(!(ini&&fin)&&rec==null&&mon==null)return null;
   return {id:uid(),f:f,ini:ini,fin:fin,rec:rec,des:0,mon:mon,tar:null};
 }
-function interp(grid,y0){
-  var res={rows:[],tot:{mon:null},meta:{}},txt=grid.map(function(r){return r.join("  ")}).join("\n"),m,i,j;
+function interp(grid,y0,full){
+  var txt=String(full||grid.map(function(r){return r.join("  ")}).join("\n")),cx=ctxFrom(txt),res={rows:[],tot:{mon:null},meta:{},cx:cx},m,i,j;
   m=/(?:nombre|trabajador|funcionario|empleado)\s*(?:completo)?\s*[:\-]\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ' .]{5,60})/i.exec(txt);if(m)res.meta.nombre=m[1].replace(/\s{2,}.*$/,"").trim();
   m=/per[ií]odo[^A-Za-z0-9\n]{0,6}([^\n]{3,40})/i.exec(txt);
   if(m)res.meta.periodo=m[1].replace(/\s{2,}.*$/,"").trim().slice(0,40);
   else if((m=/(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*(?:de|del)?\s*(\d{4})/i.exec(txt)))res.meta.periodo=m[1]+" "+m[2];
-  var py=/\b(20\d{2})\b/.exec(res.meta.periodo||"");y0=py?+py[1]:y0;
+  var py=/\b(20\d{2})\b/.exec(res.meta.periodo||"");y0=cx?cx.y:(py?+py[1]:y0);
   function keys(r){var k={};r.forEach(function(c,ix){c=String(c).toLowerCase();if(c.length>40)return;for(var q=0;q<HK.length;q++)if(HK[q][1].test(c)){(k[HK[q][0]]=k[HK[q][0]]||[]).push(ix);break}});return k}
   var hdr=-1,best=1,hk=null;
   for(i=0;i<Math.min(grid.length,80);i++){var k=keys(grid[i]),sc=Object.keys(k).length;if(sc>best){best=sc;hdr=i;hk=k}}
   var mp={},body=hdr>=0?grid.slice(hdr+1):[];
   if(hdr>=0){
-    var chk={f:function(c){return pdt(c,y0)},ini:tp,fin:tp};
+    var chk={f:function(c){return pdt(c,y0,cx)},ini:tp,fin:tp};
     Object.keys(hk).forEach(function(key){
       var cands=hk[key];
       if(chk[key]){for(j=0;j<cands.length;j++){var ok=false;for(var b=0;b<Math.min(body.length,40);b++)if(chk[key](body[b][cands[j]]||"")){ok=true;break}if(ok){mp[key]=cands[j];break}}}
@@ -361,7 +365,7 @@ function interp(grid,y0){
   }
   if(mp.f!=null){
     body.forEach(function(r){
-      var cell=function(k){return mp[k]!=null?(r[mp[k]]||""):""},f=pdt(cell("f"),y0);
+      var cell=function(k){return mp[k]!=null?(r[mp[k]]||""):""},f=pdt(cell("f"),y0,cx);
       if(!f){totalRow(r);return}
       var ini=tp(cell("ini")),fin=tp(cell("fin")),des=mp.des!=null?(dmin(cell("des"))||0):0,rec=null;
       if(mp.rd!=null||mp.rn!=null){var a=hmin(cell("rd")),b=hmin(cell("rn"));if(a!=null||b!=null)rec=(a||0)+(b||0)}
@@ -372,9 +376,139 @@ function interp(grid,y0){
     });
   }
   if(!res.rows.length){
-    grid.forEach(function(r){var x=hrow(r.join("  "),y0);if(x)res.rows.push(x);else totalRow(r)});
+    grid.forEach(function(r){var x=hrow(r.join("  "),y0,cx);if(x)res.rows.push(x);else totalRow(r)});
   }
   return res;
+}
+/* --- Reconstrucción de tablas usando la posición de cada palabra (OCR e ítems de PDF) --- */
+var MN=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+function ctxFrom(t){
+  var m=/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b\W{0,8}(?:a[ñn]o\W{0,4})?(?:de\W{0,3})?(20\d{2})/i.exec(String(t||""));
+  if(!m)return null;var k=m[1].toLowerCase();if(k==="setiembre")k="septiembre";
+  return {y:+m[2],m:MN.indexOf(k)+1};
+}
+var NOISE=/^[|_\-—–=~.:;,'"`´‘’¦!\\\/()\[\]{}<>·•*+]+$/;
+function getWords(d){
+  var W=[];
+  function add(w){
+    if(!w)return;var b=w.bbox||w,t=String(w.text!=null?w.text:(w.t||"")).trim();
+    if(!t||typeof b.x0!=="number"||typeof b.y0!=="number"||typeof b.x1!=="number"||typeof b.y1!=="number")return;
+    W.push({t:t,x0:b.x0,y0:b.y0,x1:b.x1,y1:b.y1});
+  }
+  if(!d)return W;
+  if(Array.isArray(d.words)&&d.words.length)d.words.forEach(add);
+  else if(Array.isArray(d.blocks)&&d.blocks.length)d.blocks.forEach(function(b){(b.paragraphs||[]).forEach(function(p){(p.lines||[]).forEach(function(l){(l.words||[]).forEach(add)})})});
+  else if(Array.isArray(d.lines)&&d.lines.length)d.lines.forEach(function(l){(l.words||[]).forEach(add)});
+  else if(typeof d.tsv==="string")d.tsv.split(/\r?\n/).forEach(function(ln){var c=ln.split("\t");if(c.length>=12&&c[0]==="5"){var l=+c[6],t=+c[7],w=+c[8],h=+c[9];add({text:c.slice(11).join("\t"),bbox:{x0:l,y0:t,x1:l+w,y1:t+h}})}});
+  return W;
+}
+function itemWords(items){
+  var W=[];
+  items.forEach(function(it){
+    var s=it.str;if(!s||!s.trim())return;
+    var x=it.transform[4],y=it.transform[5],n=s.length,w=it.width||n*5,h=Math.abs(it.height||it.transform[3])||10,re=/\S+/g,m;
+    while((m=re.exec(s)))W.push({t:m[0],x0:x+w*m.index/n,x1:x+w*(m.index+m[0].length)/n,y0:-(y+h),y1:-y});
+  });
+  return W;
+}
+function nearCol(cols,w){var xc=(w.x0+w.x1)/2,bj=0,bd=1e9;cols.forEach(function(c,j){var d=xc<c.x0?c.x0-xc:xc>c.x1?xc-c.x1:0;if(d<bd){bd=d;bj=j}});return {j:bj,d:bd}}
+function gridFromWords(W0){
+  var W=W0.map(function(w){return {t:String(w.t).replace(/^[|\/\\_¦]+|[|\/\\_¦]+$/g,""),x0:w.x0,y0:w.y0,x1:w.x1,y1:w.y1}}).filter(function(w){return w.t&&!NOISE.test(w.t)&&w.x1>w.x0&&w.y1>w.y0}),i,j;
+  if(W.length<8)return null;
+  var hs=W.map(function(w){return w.y1-w.y0}).sort(function(a,b){return a-b}),mh=hs[Math.floor(hs.length/2)]||10;
+  W.sort(function(a,b){return (a.y0+a.y1)-(b.y0+b.y1)});
+  var L=[];
+  W.forEach(function(w){var yc=(w.y0+w.y1)/2,l=L.length?L[L.length-1]:null;
+    if(l&&Math.abs(yc-l.yc)<=0.55*mh){l.w.push(w);l.yc+=(yc-l.yc)/l.w.length}else L.push({yc:yc,w:[w]})});
+  L.forEach(function(l){l.w.sort(function(a,b){return a.x0-b.x0})});
+  var dg=function(l){return l.w.some(function(w){return /\d/.test(w.t)})};
+  /* encabezado: primera línea con al menos 2 palabras clave; puede seguir en 1–2 líneas más sin números */
+  var HW=/fecha|entrada|salida|hora|total|domingo|festivo|diurn|noctur|turno|descuent|valor|monto|tarifa|ingreso|t[eé]rmino|d[ií]a/i,hi=-1,hl=[];
+  for(i=0;i<L.length&&hi<0;i++){var ks={};L[i].w.forEach(function(w){var m=HW.exec(w.t);if(m)ks[m[0].toLowerCase()]=1});if(Object.keys(ks).length>=2&&L[i].w.length>=2)hi=i}
+  if(hi>=0){hl.push(L[hi]);for(j=hi+1;j<L.length&&hl.length<3;j++){if(dg(L[j])||L[j].yc-hl[hl.length-1].yc>2.6*mh)break;hl.push(L[j])}}
+  var nd=function(l){return l.w.filter(function(w){return /\d/.test(w.t)}).length};
+  var D=L.slice(hi>=0?hi+hl.length:0).filter(function(l){return nd(l)>=2||/total/i.test(l.w.map(function(w){return w.t}).join(" "))});
+  if(!D.length)return null;
+  /* sin palabras clave: el encabezado son las 1–2 líneas sin números justo encima de la primera fila */
+  if(hi<0){var fi=L.indexOf(D[0]),k;for(k=fi-1;k>=0&&hl.length<2;k--){if(dg(L[k])||L[k+1].yc-L[k].yc>2.6*mh)break;hl.unshift(L[k])}}
+  /* columnas: zonas horizontales donde hay datos en las filas de la tabla */
+  var g=0.8*mh,iv=[],cols=[];
+  D.forEach(function(l){l.w.forEach(function(w){iv.push([w.x0,w.x1])})});
+  iv.sort(function(a,b){return a[0]-b[0]});
+  iv.forEach(function(v){var c=cols[cols.length-1];if(c&&v[0]-c.x1<=g)c.x1=Math.max(c.x1,v[1]);else cols.push({x0:v[0],x1:v[1]})});
+  if(cols.length<2)return null;
+  cols.forEach(function(c){c.lab=[]});
+  hl.forEach(function(l,li){l.w.forEach(function(w){var n=nearCol(cols,w);if(n.d<=3*mh)cols[n.j].lab.push({li:li,x:w.x0,t:w.t})})});
+  var G=[cols.map(function(c){c.lab.sort(function(a,b){return a.li-b.li||a.x-b.x});return c.lab.map(function(q){return q.t}).join(" ")})];
+  D.forEach(function(l){var row=cols.map(function(){return []});l.w.forEach(function(w){row[nearCol(cols,w).j].push(w.t)});G.push(row.map(function(a){return a.join(" ")}))});
+  return G.length>1?G:null;
+}
+var ROLES=[["","Ignorar"],["f","Fecha"],["ini","Entrada"],["fin","Salida"],["ie","Entrada y salida juntas"],["rec","Horas reconocidas"],["des","Descuento (min)"],["tar","Tarifa por hora"],["mon","Remuneración"]];
+function autoRoles(G){
+  var H=G[0]||[],body=G.slice(1,40),R=H.map(function(h){h=String(h).toLowerCase();
+    if(/horario/.test(h))return "ie";
+    if(/fecha|d[ií]a/.test(h))return "f";
+    if(/entrada|inicio|ingreso|desde/.test(h))return "ini";
+    if(/salida|t[eé]rmino|termino|hasta/.test(h))return "fin";
+    if(/descuent|colaci|descanso|atraso/.test(h))return "des";
+    if(/tarifa|valor\s*(por\s*)?(hora|hr)/.test(h))return "tar";
+    if(/monto|remuner|l[ií]quido|liquido|bruto|pago|pagar|valor|\$/.test(h))return "mon";
+    if(/total|reconocid|hora|hrs|trabajad|diurn|noctur/.test(h))return "rec";
+    return ""});
+  /* si hay una columna "Total (horas)", solo esa cuenta como horas: las demás serían partes del mismo total */
+  var ti=-1;H.forEach(function(h,j){if(ti<0&&/^\W*total\W*(horas?|hrs?)?\W*$|total\s*hor/i.test(String(h)))ti=j});
+  if(ti>=0)R=R.map(function(r,j){return r==="rec"&&j!==ti?"":r});
+  R.forEach(function(r,j){if(r)return;var n=0,t=0;body.forEach(function(row){var c=row[j]||"";if(!c)return;t++;if((c.match(/\d{1,2}:\d{2}/g)||[]).length>=2)n++});if(t>=3&&n/t>=0.6)R[j]="ie"});
+  /* columnas sin encabezado legible: si casi todas sus celdas son una hora, la primera es entrada y la segunda salida */
+  var tc=[];R.forEach(function(r,j){if(r)return;var n=0,t=0;body.forEach(function(row){var c=row[j]||"";if(!c)return;t++;if(/^\d{1,2}[:.]\d{2}$/.test(c.trim()))n++});if(t>=3&&n/t>=0.7)tc.push(j)});
+  if(R.indexOf("ini")<0&&R.indexOf("ie")<0&&tc.length>=2){R[tc[0]]="ini";if(R.indexOf("fin")<0)R[tc[1]]="fin"}
+  if(R.indexOf("f")<0){for(var j=0;j<R.length;j++){if(R[j])continue;var n=0;body.forEach(function(r){if(/^\s*\d{1,2}\s*$/.test(r[j]||"")||/\d{1,2}[\/\-.]\d{1,2}/.test(r[j]||""))n++});if(n>=3){R[j]="f";break}}}
+  return R;
+}
+function mapRows(G,roles,cx,y0){
+  var out=[],tot=null;
+  G.slice(1).forEach(function(r){
+    var f="",ini="",fin="",rec=null,des=0,mon=null,tar=null,line=r.join(" ");
+    roles.forEach(function(ro,j){
+      var c=r[j]||"";if(!ro)return;var tm=c.match(/\d{1,2}[:.]\d{2}/g)||[];
+      if(ro==="f")f=pdt(c,y0,cx);
+      else if(ro==="ini")ini=tp(tm[0]||c);
+      else if(ro==="fin")fin=tp(tm[tm.length-1]||c);
+      else if(ro==="ie"){if(tm.length>=2){ini=tp(tm[0]);fin=tp(tm[tm.length-1])}}
+      else if(ro==="rec"){var h=hmin(c);if(h!=null)rec=(rec||0)+h}
+      else if(ro==="des")des=dmin(c)||0;
+      else if(ro==="mon")mon=pnum(c);
+      else if(ro==="tar")tar=pnum(c);
+    });
+    if(!f){if(/total/i.test(line)){var mi=roles.indexOf("mon");if(mi>=0&&tot==null){var q=pnum(r[mi]);if(q!=null)tot=q}}return}
+    if(!(ini&&fin)&&rec==null&&mon==null)return;
+    out.push({id:uid(),f:f,ini:ini,fin:fin,rec:rec,des:des,mon:mon,tar:tar});
+  });
+  return {rows:out,tot:tot};
+}
+function analizarParte(p,y0){
+  var full=(p.pre?p.pre+"\n":"")+(p.full||p.txt.map(function(r){return r.join("  ")}).join("\n")),r=interp(p.txt,y0,full),cx=r.cx||ctxFrom(full),
+  out={rows:r.rows,tot:r.tot,meta:r.meta,grid:p.pos||null,cx:cx,raw:p.full||full};
+  if(p.pos){var m=mapRows(p.pos,autoRoles(p.pos),cx,y0);if(m.rows.length){out.rows=m.rows;out.tot={mon:m.tot!=null?m.tot:r.tot.mon}}}
+  return out;
+}
+function mapAplicar(){
+  var d=draft;if(!d||!d.grid)return;
+  var cx=/^\d{4}-(0[1-9]|1[0-2])$/.test(d.mes||"")?{y:+d.mes.slice(0,4),m:+d.mes.slice(5)}:null;
+  var r=mapRows(d.grid,d.roles||[],cx,+ym.slice(0,4));
+  if(!r.rows.length){cm("Con esas columnas no se pudo formar ningún registro. Revisa que haya una columna Fecha y otra con horas (o entrada y salida), y que el mes sea el del documento.");render();return}
+  d.rows=r.rows;d.remap=false;if(r.tot!=null)d.tot.mon=r.tot;
+  cm("Se reconocieron "+r.rows.length+" registro(s) con las columnas indicadas. Revísalos antes de confirmar.");render();
+}
+function rMap(d){
+  var G=d.grid,nc=0,j;G.forEach(function(r){nc=Math.max(nc,r.length)});
+  var h='<div class="card"><b>Asignar columnas</b><p class="mu">Indica qué es cada columna de la tabla leída. Si marcas varias como "Horas reconocidas", se suman. Solo se crean filas con datos legibles; nada se inventa.</p>'+
+  '<label for="c-mes">Mes de las fechas</label><input id="c-mes" type="month" data-c="mes" value="'+esc(d.mes||"")+'"><p class="mu">Se usa cuando la tabla trae solo el número de día. Confírmalo con el título del documento.</p><div class="tw"><table><thead><tr>';
+  for(j=0;j<nc;j++)h+='<th><select data-c="role" data-j="'+j+'" aria-label="Qué es la columna '+(j+1)+'" style="min-height:40px;width:auto;min-width:130px">'+ROLES.map(function(r){return '<option value="'+r[0]+'"'+((d.roles||[])[j]===r[0]?" selected":"")+'>'+r[1]+'</option>'}).join("")+'</select></th>';
+  h+='</tr><tr>';for(j=0;j<nc;j++)h+='<th>'+esc(G[0][j]||"")+'</th>';
+  h+='</tr></thead><tbody>';
+  G.slice(1,41).forEach(function(r){h+='<tr>';for(var k=0;k<nc;k++)h+='<td>'+esc(r[k]||"")+'</td>';h+='</tr>'});
+  return h+'</tbody></table></div><button class="pri" type="button" data-act="c-map">Usar estas columnas</button></div>';
 }
 function txt2grid(t){return String(t).split(/\r?\n/).map(function(l){return l.split(/\t|\s{2,}|\|/).map(function(c){return c.trim()}).filter(Boolean)}).filter(function(r){return r.length})}
 
@@ -472,7 +606,7 @@ async function ocr(src){
   if(src&&src.toBlob){blob=await new Promise(function(ok){try{src.toBlob(function(b){ok(b)},"image/png")}catch(e){ok(null)}})}
   try{
     var r=await Tesseract.recognize(blob||src,"spa",{logger:function(m){if(m&&m.status==="recognizing text")cm("Leyendo la imagen… "+Math.round(m.progress*100)+"%")}});
-    return r.data.text;
+    return {text:r.data.text||"",words:getWords(r.data)};
   }catch(e){
     throw mkErr("ocr","El lector de texto (OCR) no pudo procesar la imagen. La primera vez descarga el idioma español, así que necesita buena conexión; reintenta."+VH(),"OCR: "+(errTxt(e)||"sin detalle: el navegador no dejó iniciar el lector (workers bloqueados)"));
   }
@@ -481,16 +615,17 @@ async function ocrImg(cv){return ocr(cv)}
 
 /* --- PDF --- */
 async function readPdf(buf){
-  var L=await pdfInit(),doc,grid=[],chars=0,p;
+  var L=await pdfInit(),doc,chars=0,p;
   try{doc=await L.getDocument({data:new Uint8Array(buf)}).promise}
   catch(e){var nm=e&&e.name;
     if(nm==="PasswordException")throw mkErr("file","El PDF está protegido con contraseña. Quita la protección o ingresa los datos manualmente.","PasswordException");
     if(nm==="InvalidPDFException"||nm==="FormatError")throw mkErr("file","El archivo no es un PDF válido o está dañado.",errTxt(e));
     throw mkErr("pdf","No se pudo abrir el PDF con el lector de PDF."+(/worker|blob/i.test(errTxt(e))?VH():""),errTxt(e));
   }
+  var parts=[];
   try{
     for(p=1;p<=doc.numPages&&p<=30;p++){
-      var pg=await doc.getPage(p),tc=await pg.getTextContent(),rows=[];
+      var pg=await doc.getPage(p),tc=await pg.getTextContent(),rows=[],grid=[];
       tc.items.forEach(function(it){
         if(!it.str||!it.str.trim())return;chars+=it.str.length;
         var y=it.transform[5],x=it.transform[4],r=null;
@@ -501,24 +636,25 @@ async function readPdf(buf){
       rows.forEach(function(r){r.c.sort(function(a,b){return a.x-b.x});var cells=[],end=null;
         r.c.forEach(function(c){if(end!==null&&c.x-end<4)cells[cells.length-1]+=(c.x-end<1.5?"":" ")+c.s.trim();else cells.push(c.s.trim());end=c.x+c.w});
         grid.push(cells)});
+      parts.push({pos:gridFromWords(itemWords(tc.items)),txt:grid,full:grid.map(function(r){return r.join("  ")}).join("\n")});
     }
     if(chars<40){
-      cm("El PDF parece escaneado. Leyendo con OCR…");
+      cm("El PDF parece escaneado. Leyendo con OCR…");parts=[];
       for(p=1;p<=doc.numPages&&p<=6;p++){
         var pg2=await doc.getPage(p),vp=pg2.getViewport({scale:2}),cv=document.createElement("canvas");cv.width=Math.round(vp.width);cv.height=Math.round(vp.height);
         await pg2.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
-        grid=grid.concat(txt2grid(await ocrImg(cv)));
+        var o=await ocrImg(cv);parts.push({pos:gridFromWords(o.words),txt:txt2grid(o.text),full:o.text});
       }
     }
   }catch(e){if(e&&e.kind)throw e;throw mkErr("pdf","No se pudo leer el contenido del PDF.",errTxt(e))}
-  return grid;
+  return parts;
 }
 function cm(t){cmsg=t;var e=$("c-msg");if(e)e.textContent=t}
 var imp=false;
 async function leerEmp(file){
   if(imp){cm("Ya se está leyendo un documento. Espera a que termine.");return}
   imp=true;
-  var n=(file.name||"").toLowerCase(),ty=(file.type||"").toLowerCase(),grid,src,buf,fmt;
+  var n=(file.name||"").toLowerCase(),ty=(file.type||"").toLowerCase(),parts,src,buf,fmt;
   try{
     cm("Leyendo el archivo…");
     /* 1) Copiar los bytes a memoria ANTES de hacer cualquier otra cosa: en iPhone el archivo elegido puede dejar de ser válido */
@@ -530,17 +666,24 @@ async function leerEmp(file){
     if(!route){cm("Formato no admitido ("+(file.name||"sin nombre")+"). Usa Excel (.xlsx), PDF, JPG o PNG, o ingresa los datos manualmente.");return}
     if(route==="xls"){
       src="Excel";
-      try{grid=await readXlsx(buf)}catch(e){if(e&&e.kind)throw e;throw mkErr("file","No se pudo leer el Excel. Revisa que sea un .xlsx válido y sin contraseña.",errTxt(e))}
-    }else if(route==="pdf"){grid=await readPdf(buf);src="PDF"}
+      try{parts=[{txt:await readXlsx(buf)}]}catch(e){if(e&&e.kind)throw e;throw mkErr("file","No se pudo leer el Excel. Revisa que sea un .xlsx válido y sin contraseña.",errTxt(e))}
+    }else if(route==="pdf"){parts=await readPdf(buf);src="PDF"}
     else{
       cm("Preparando la imagen…");
       var cv=await decodeImg(buf,fmt,IMT[fmt]||ty);
       cm("Leyendo la imagen…");
-      grid=txt2grid(await ocrImg(cv));src="imagen (OCR)";
+      var o=await ocrImg(cv);parts=[{pos:gridFromWords(o.words),txt:txt2grid(o.text),full:o.text}];src="imagen (OCR)";
     }
-    var r=interp(grid,+ym.slice(0,4));
-    draft={rows:r.rows,tot:r.tot,meta:r.meta,src:src,raw:grid.map(function(x){return x.join("  ")}).join("\n")};
-    cm(r.rows.length?"Se reconocieron "+r.rows.length+" registro(s). Revísalos antes de confirmar."+(src.indexOf("OCR")>=0?" La lectura por OCR puede tener errores: revisa cada fila.":""):"No pude reconocer turnos en este documento. Puedes agregar los registros manualmente.");
+    var y0=+ym.slice(0,4),out={rows:[],tot:{mon:null},meta:{},grid:null,cx:null,raw:""},first="";
+    parts.forEach(function(pt,ix){
+      pt.pre=ix?first.slice(0,500):"";var a=analizarParte(pt,y0);
+      if(!ix)first=a.raw||"";
+      out.rows=out.rows.concat(a.rows);if(out.tot.mon==null&&a.tot&&a.tot.mon!=null)out.tot.mon=a.tot.mon;
+      if(!out.meta.nombre&&!out.meta.periodo)out.meta=a.meta;if(!out.grid&&a.grid)out.grid=a.grid;if(!out.cx&&a.cx)out.cx=a.cx;
+      out.raw+=(out.raw?"\n":"")+a.raw;
+    });
+    draft={rows:out.rows,tot:out.tot,meta:out.meta,src:src,raw:out.raw,grid:out.grid,roles:out.grid?autoRoles(out.grid):null,mes:out.cx?out.cx.y+"-"+p2(out.cx.m):ym};
+    cm(out.rows.length?"Se reconocieron "+out.rows.length+" registro(s). Revísalos antes de confirmar."+(src.indexOf("OCR")>=0?" La lectura por OCR puede tener errores: revisa cada fila.":""):out.grid?"No pude reconocer los turnos automáticamente. Abajo puedes indicar qué columna es cada dato (fecha, entrada, salida, horas…); nada se inventa.":"No pude reconocer turnos en este documento. Puedes agregar los registros manualmente.");
   }catch(e){
     console.error("Importar registro del empleador:",e);
     cm(((e&&e.kind)?e.message:"No se pudo leer el documento: "+errTxt(e)+".")+((e&&e.det)?"\nDetalle técnico: "+e.det:"")+"\nPuedes ingresar los datos manualmente.");
@@ -653,6 +796,8 @@ function rCmp(){
 }
 function rDraft(){
   var d=draft,h='<div class="card"><b>Revisa los datos del empleador</b><p class="mu">Fuente: '+esc(d.src||"ingreso manual")+(d.meta.nombre?". Trabajador: "+esc(d.meta.nombre):"")+(d.meta.periodo?". Período: "+esc(d.meta.periodo):"")+'. Corrige lo que haga falta. No se compara nada hasta que confirmes. Lo que el documento no traía queda en blanco.</p></div>';
+  if(d.grid&&(!d.rows.length||d.remap))h+=rMap(d);
+  else if(d.grid)h+='<button class="sec" type="button" data-act="c-remap" style="margin-top:0;margin-bottom:10px">Reasignar columnas</button>';
   if(d.raw&&!d.rows.length)h+='<div class="card"><b>Texto que se leyó del documento</b><p class="mu">Esto es lo que el lector pudo leer. Si está vacío o ilegible, prueba con una foto más nítida y de frente; si se lee bien pero no se reconoció, envíalo para mejorar el reconocimiento.</p><textarea readonly aria-label="Texto leído" style="min-height:140px">'+esc(d.raw.slice(0,4000))+'</textarea></div>';
   h+='<div class="tw"><table><thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Horas reconocidas (h:mm)</th><th class="n">Desc. (min)</th><th class="n">Tarifa/h</th><th class="n">Remuneración informada</th><th></th></tr></thead><tbody>';
   d.rows.forEach(function(r,i){
@@ -720,6 +865,8 @@ function cmpClick(a,b){
   else if(a==="c-rm"){draft.rows.splice(i,1);render()}
   else if(a==="c-no"){draft=null;cm("");render()}
   else if(a==="c-ok")confirmar();
+  else if(a==="c-map")mapAplicar();
+  else if(a==="c-remap"){draft.remap=true;render()}
   else if(a==="c-go"){ym=b.getAttribute("data-m");sel=null;cm("");render()}
   else if(a==="c-edit"){var m=cmp.meses[ym];draft={rows:ccl(m.emp),tot:{mon:m.tot.mon},meta:m.meta||{},src:"registro guardado"};cm("");render()}
   else if(a==="c-del"){if(window.confirm("¿Eliminar el registro del empleador de "+fmes(ym)+"? Tus turnos no se tocan.")){var bk=JSON.stringify(cmp);delete cmp.meses[ym];if(pcmp()===false){cmp=JSON.parse(bk);cm("No se pudo guardar.")}else cm("Registro eliminado.");render()}}
@@ -740,6 +887,8 @@ document.addEventListener("change",function(e){
   if(c==="obs"){var m=cmp.meses[ym];if(m){m.obs=t.value;pcmp()}return}
   if(c==="pag"){var m2=cmp.meses[ym],tt2=t.getAttribute("data-t");if(m2){if(t.value.trim()===""){delete m2.pag[tt2]}else if(hmin(t.value)!=null)m2.pag[tt2]=t.value.trim();else{toast("Escribe las horas como 149, 149,5 o 149:36.");render();return}pcmp();render()}return}
   if(!draft)return;
+  if(c==="role"){(draft.roles=draft.roles||[])[+t.getAttribute("data-j")]=t.value;return}
+  if(c==="mes"){draft.mes=t.value;return}
   if(c==="tm"){var q=t.value===""?null:parseFloat(t.value);draft.tot.mon=q!=null&&isFinite(q)&&q>=0?q:null;return}
   var r=draft.rows[+t.getAttribute("data-i")];if(!r)return;
   var val=t.value,num=function(x){x=parseFloat(x);return isFinite(x)&&x>=0?x:null};

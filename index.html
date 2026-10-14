@@ -305,7 +305,7 @@ function pdt(s,y0,cx){
   if((m=/(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))){y=+m[1];mo=+m[2];d=+m[3]}
   else if((m=/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/.exec(s))){d=+m[1];mo=+m[2];y=+m[3];if(y<100)y+=2000}
   else if((m=/(\d{1,2})\s*(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\.?(?:\s*(?:de\s+)?(\d{4}))?/.exec(s))){d=+m[1];mo=MS.indexOf(m[2]==="set"?"sep":m[2])+1;y=m[3]?+m[3]:(y0||0)}
-  else if(cx&&(m=/^(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(\d{1,2})(?:\s*(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?)?$/.exec(s))){d=+m[1];mo=cx.m;y=cx.y}
+  else if(cx&&(m=/^(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?[\s\-–]*)?(\d{1,2})(?:\s*(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?)?$/.exec(s))){d=+m[1];mo=cx.m;y=cx.y}
   else return "";
   if(!y)return "";var f=y+"-"+p2(mo)+"-"+p2(d);return okDate(f)?f:"";
 }
@@ -327,10 +327,13 @@ function hmin(s){
 function dmin(s){s=String(s==null?"":s).trim();return /^\d+$/.test(s)?+s:hmin(s)}
 var HK=[["f",/fecha|d[ií]a\b/],["ini",/entrada|inicio|ingreso|desde|hora\s*ent/],["fin",/salida|t[eé]rmino|termino|hasta|hora\s*sal|\bfin\b/],["des",/descuent|colaci|descanso|atraso/],["rd",/diurn/],["rn",/noctur/],["tar",/tarifa|valor\s*(por\s*)?(hora|hr)|\$\s*\/\s*h/],["rec",/^\W*total\W*(horas?|hrs?)?\W*$|total\s*hor/],["mon",/monto|total\s*(a\s*)?pag|l[ií]quido|bruto|remuneraci|haber|importe|pago|valor/],["rec",/reconocid|remunerad|pagad|horas|hrs|duraci|trabajad/]];
 /* Corrige los errores típicos del OCR en horas: O→0, l/I/|→1, S→5; 08.00 / 8h00 / 0800 → 08:00; "8 a 20" → 08:00 20:00 */
-function fixLine(t){
+function fixLine(t,loose){
   t=String(t==null?"":t);
   t=t.replace(/(^|[^A-Za-z0-9])([0-9OolI|S]{1,2}):([0-9OolI|S]{2})(?![A-Za-z0-9])/g,function(m,p,h,n){var f=function(z){return z.replace(/[Oo]/g,"0").replace(/[lI|]/g,"1").replace(/S/g,"5")};return p+f(h)+":"+f(n)});
   t=t.replace(/[A-Za-z0-9|]+/g,function(w){if(!/\d/.test(w)||/[A-Za-z]{2,}/.test(w.replace(/[OolIS|]/g,"")))return w;return w.replace(/[Oo]/g,"0").replace(/[lI|]/g,"1").replace(/S/g,"5")});
+  /* "8 00", "14 00" (el OCR perdió los dos puntos); en celdas de horas se acepta cualquier minuto, en líneas sueltas solo 00/15/30/45 */
+  t=t.replace(/(^|[^\d:.\/-])(\d{1,2})\s+(\d{2})(?![\d:.\/-])/g,function(m,p,a,b){return +a<24&&+b<60&&(loose||/^(00|15|30|45)$/.test(b)&&+a>=5)?p+a+":"+b:m});
+  if(loose)t=t.replace(/(^|[^\d:.\/-])([1-9])([0-5]\d)(?![\d:.\/-])/g,function(m,p,a,b){return p+a+":"+b});
   t=t.replace(/\b(\d{1,2})\s*[h.]\s*(\d{2})\b(?![\d\/-])/gi,function(m,a,b){return +a<24&&+b<60?a+":"+b:m});
   t=t.replace(/(^|[^\d:.\/-])([01]\d[0-5]\d|2[0-3][0-5]\d)(?![\d:.\/-])/g,function(m,p,a){return /^20[12]\d$/.test(a)?m:p+a.slice(0,2)+":"+a.slice(2)});
   t=t.replace(/\b(\d{1,2})\s*(?:a|al|-|–)\s*(\d{1,2})\s*(?:h|hrs?|horas)\b/gi,function(m,a,b){return +a<24&&+b<=24?p2(+a)+":00 "+p2(+b%24)+":00":m});
@@ -339,7 +342,7 @@ function fixLine(t){
 }
 function hrow(line,y0,cx){
   line=fixLine(line);var f=pdt(line,y0),rest=null;
-  if(!f&&cx){var dm=/^\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(\d{1,2})(?![\d:.,\/-])\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(?=\D*\d{1,2}:\d{2})/i.exec(line);
+  if(!f&&cx){var dm=/^\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?[\s\-–]*)?(\d{1,2})(?![\d:.,\/-])\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(?=\D*\d{1,2}:\d{2})/i.exec(line);
     if(dm){var f2=cx.y+"-"+p2(cx.m)+"-"+p2(+dm[1]);if(okDate(f2)){f=f2;rest=line.slice(dm[0].length)}}}
   if(!f)return null;
   if(rest==null)rest=line.replace(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{1,2}\s*(?:de\s+)?(?:ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\.?(?:\s*(?:de\s+)?\d{4})?/i," ");
@@ -470,19 +473,48 @@ function autoRoles(G){
   var ti=-1;H.forEach(function(h,j){if(ti<0&&/^\W*total\W*(horas?|hrs?)?\W*$|total\s*hor/i.test(String(h)))ti=j});
   if(ti>=0)R=R.map(function(r,j){return r==="rec"&&j!==ti?"":r});
   R.forEach(function(r,j){if(r)return;var n=0,t=0;body.forEach(function(row){var c=row[j]||"";if(!c)return;t++;if((c.match(/\d{1,2}:\d{2}/g)||[]).length>=2)n++});if(t>=3&&n/t>=0.6)R[j]="ie"});
+  R.forEach(function(r,j){if(r)return;var n=0,t=0;body.forEach(function(row){var c=row[j]||"";if(!c)return;t++;if((fixLine(c,true).match(/\d{1,2}:\d{2}/g)||[]).length>=2)n++});if(t>=3&&n/t>=0.6)R[j]="ie"});
   /* columnas sin encabezado legible: si casi todas sus celdas son una hora, la primera es entrada y la segunda salida */
-  var tc=[];R.forEach(function(r,j){if(r)return;var n=0,t=0;body.forEach(function(row){var c=row[j]||"";if(!c)return;t++;if(/^\d{1,2}[:.]\d{2}$/.test(c.trim()))n++});if(t>=3&&n/t>=0.7)tc.push(j)});
+  var tc=[];R.forEach(function(r,j){if(r)return;var n=0,t=0;body.forEach(function(row){var c=fixLine(row[j]||"",true);if(!c.trim())return;t++;if(/^\W*\d{1,2}:\d{2}\W*$/.test(c.trim()))n++});if(t>=3&&n/t>=0.5)tc.push(j)});
   if(R.indexOf("ini")<0&&R.indexOf("ie")<0&&tc.length>=2){R[tc[0]]="ini";if(R.indexOf("fin")<0)R[tc[1]]="fin"}
-  if(R.indexOf("f")<0){for(var j=0;j<R.length;j++){if(R[j])continue;var n=0;body.forEach(function(r){if(/^\s*\d{1,2}\s*$/.test(r[j]||"")||/\d{1,2}[\/\-.]\d{1,2}/.test(r[j]||""))n++});if(n>=3){R[j]="f";break}}}
+  if(R.indexOf("f")<0){for(var j=0;j<R.length;j++){if(R[j])continue;var n=0;body.forEach(function(r){if(/^\s*\d{1,2}\s*$/.test(r[j]||"")||/\d{1,2}[\/\-.]\d{1,2}/.test(r[j]||"")||/^(lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?[\s\-–]*\d{1,2}$/i.test((r[j]||"").trim()))n++});if(n>=3){R[j]="f";break}}}
   return R;
 }
+/* Fecha tipo "mar-01" leída por OCR (o/O→0, l→1, z→2, s→3/5…): se acepta solo si el día de la semana escrito coincide con el calendario; si no coincide queda marcada para revisar */
+var WD=[["dom"],["lun"],["mar"],["mi[eé]","mie"],["jue"],["vie"],["s[aá]b","sab"]];
+function pdtw(c,cx){
+  if(!cx)return null;
+  var m=/^\s*(lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]{0,6}?[\s\-–._]*([0-9OoIl|SsZzBb]{1,2})\s*$/i.exec(String(c||""));
+  if(!m)return null;
+  var wd=-1,k;for(k=0;k<WD.length;k++)if(new RegExp("^"+WD[k][0]+"$","i").test(m[1])||m[1].toLowerCase()===(WD[k][1]||WD[k][0]))wd=k;
+  var MAP={o:["0"],i:["1"],l:["1"],"|":["1"],z:["2"],s:["5","3"],b:["6","8"]},opts=m[2].split("").map(function(ch){return /\d/.test(ch)?[ch]:(MAP[ch.toLowerCase()]||null)});
+  if(opts.some(function(o){return !o}))return null;
+  var cands=[[""]],out=[];opts.forEach(function(o){var nx=[];cands.forEach(function(a){o.forEach(function(x){nx.push([a[0]+x])})});cands=nx});
+  cands.forEach(function(a){var d=+a[0],f=cx.y+"-"+p2(cx.m)+"-"+p2(d);if(d>=1&&okDate(f)){var ok=new Date(cx.y,cx.m-1,d).getDay()===wd;out.push({f:f,ok:ok})}});
+  if(!out.length)return null;
+  var g=out.filter(function(o){return o.ok})[0];
+  return g?{f:g.f,rv:0}:{f:out[0].f,rv:1};
+}
+/* Totales del documento, para verificar la lectura: "$ a  $ b  $ c" (el último es el total) y "TOTALES h:mm:ss" */
+function totMonto(txt){
+  var best=null;String(txt||"").split(/\r?\n/).forEach(function(l){
+    var a=(l.match(/\$\s*\d[\d.,]*/g)||[]).map(function(x){return pnum(x.replace(/\$/,""))}).filter(function(x){return x!=null});
+    if(a.length>=2){best=a[a.length-1]}else if(a.length===1&&/total/i.test(l)&&best==null)best=a[0];
+  });return best;
+}
+function totHoras(txt){
+  var best=null;String(txt||"").split(/\r?\n/).forEach(function(l){
+    if(!/total/i.test(l))return;var a=l.match(/\d{2,4}:\d{2}(?::\d{2})?/g);if(a&&a.length){var h=hmin(a[a.length-1]);if(h!=null)best=h}
+  });return best;
+}
+function dmin2(t){var m=/^(\d{2}):(\d{2})$/.exec(t||"");return m?(+m[1])*60+(+m[2]):0}
 function mapRows(G,roles,cx,y0){
   var out=[],tot=null;
   G.slice(1).forEach(function(r){
-    var f="",ini="",fin="",rec=null,des=0,mon=null,tar=null,line=r.join(" ");
+    var f="",ini="",fin="",rec=null,des=0,mon=null,tar=null,line=r.join(" "),frv=0;
     roles.forEach(function(ro,j){
-      var c=fixLine(r[j]||"");if(!ro)return;var tm=c.match(/\d{1,2}[:.]\d{2}/g)||[];
-      if(ro==="f")f=pdt(c,y0,cx);
+      var c=fixLine(r[j]||"",ro==="ini"||ro==="fin"||ro==="ie"||ro==="rec");if(!ro)return;var tm=c.match(/\d{1,2}[:.]\d{2}/g)||[];
+      if(ro==="f"){var fw=pdtw(c,cx);if(fw){f=fw.f;frv=fw.rv}else f=pdt(c,y0,cx)}
       else if(ro==="ini")ini=tp(tm[0]||c);
       else if(ro==="fin")fin=tp(tm[tm.length-1]||c);
       else if(ro==="ie"){if(tm.length>=2){ini=tp(tm[0]);fin=tp(tm[tm.length-1])}}
@@ -492,15 +524,18 @@ function mapRows(G,roles,cx,y0){
       else if(ro==="tar")tar=pnum(c);
     });
     if(!f){if(/total/i.test(line)){var mi=roles.indexOf("mon");if(mi>=0&&tot==null){var q=pnum(r[mi]);if(q!=null)tot=q}}return}
-    if(!(ini&&fin)&&rec==null&&mon==null)return;
-    out.push({id:uid(),f:f,ini:ini,fin:fin,rec:rec,des:des,mon:mon,tar:tar});
+    if(!(ini&&fin)&&!rec&&mon==null)return;
+    /* verificación cruzada: si hay entrada, salida y horas, deben cuadrar (menos descuentos); si no, la fila se marca para revisar */
+    var rv=frv;if(!rv&&ini&&fin&&rec!=null){var du=(dmin2(fin)-dmin2(ini)+1440)%1440;if(Math.abs(du-(des||0)-rec)>2)rv=1}
+    out.push({id:uid(),f:f,ini:ini,fin:fin,rec:rec,des:des,mon:mon,tar:tar,rv:rv?1:0});
   });
   return {rows:out,tot:tot};
 }
 function analizarParte(p,y0){
   var full=(p.pre?p.pre+"\n":"")+(p.full||p.txt.map(function(r){return r.join("  ")}).join("\n")),r=interp(p.txt,y0,full),cx=r.cx||ctxFrom(full),
-  out={rows:r.rows,tot:r.tot,meta:r.meta,grid:p.pos||null,cx:cx,raw:p.full||full};
-  if(p.pos){var m=mapRows(p.pos,autoRoles(p.pos),cx,y0);if(m.rows.length){out.rows=m.rows;out.tot={mon:m.tot!=null?m.tot:r.tot.mon}}}
+  out={rows:r.rows,tot:r.tot,meta:r.meta,grid:p.pos||null,cx:cx,raw:p.full||full,th:totHoras(full)};
+  if(p.pos){var m=mapRows(p.pos,autoRoles(p.pos),cx,y0);if(m.rows.length){out.rows=m.rows;out.tot={mon:m.tot!=null?m.tot:(r.tot.mon!=null?r.tot.mon:totMonto(full))}}}
+  if(out.tot&&out.tot.mon==null){var tm0=totMonto(out.raw);if(tm0!=null)out.tot.mon=tm0}
   return out;
 }
 function mapAplicar(){
@@ -509,7 +544,7 @@ function mapAplicar(){
   var r=mapRows(d.grid,d.roles||[],cx,+ym.slice(0,4));
   if(!r.rows.length){cm("Con esas columnas no se pudo formar ningún registro. Revisa que haya una columna Fecha y otra con horas (o entrada y salida), y que el mes sea el del documento.");render();return}
   d.rows=r.rows;d.remap=false;if(r.tot!=null)d.tot.mon=r.tot;
-  cm("Se reconocieron "+r.rows.length+" registro(s) con las columnas indicadas. Revísalos antes de confirmar.");render();
+  cm("Se reconocieron "+r.rows.length+" registro(s) con las columnas indicadas."+(r.rows.some(function(x){return x.rv})?" Los que tienen la hora en rojo se leyeron con duda (minutos poco habituales): corrígelos.":"")+" Revísalos y confirma para compararlos con tus turnos.");render();
 }
 function rMap(d){
   var G=d.grid,nc=0,j;G.forEach(function(r){nc=Math.max(nc,r.length)});
@@ -732,10 +767,10 @@ async function leerEmp(file){
       pt.pre=ix?first.slice(0,500):"";var a=analizarParte(pt,y0);
       if(!ix)first=a.raw||"";
       out.rows=out.rows.concat(a.rows);if(out.tot.mon==null&&a.tot&&a.tot.mon!=null)out.tot.mon=a.tot.mon;
-      if(!out.meta.nombre&&!out.meta.periodo)out.meta=a.meta;if(!out.grid&&a.grid)out.grid=a.grid;if(!out.cx&&a.cx)out.cx=a.cx;
+      if(!out.meta.nombre&&!out.meta.periodo)out.meta=a.meta;if(!out.grid&&a.grid)out.grid=a.grid;if(out.th==null&&a.th!=null)out.th=a.th;if(!out.cx&&a.cx)out.cx=a.cx;
       out.raw+=(out.raw?"\n":"")+a.raw;
     });
-    draft={rows:out.rows,tot:out.tot,meta:out.meta,src:src,raw:out.raw,grid:out.grid,roles:out.grid?autoRoles(out.grid):null,mes:out.cx?out.cx.y+"-"+p2(out.cx.m):ym};
+    draft={rows:out.rows,tot:out.tot,th:out.th,meta:out.meta,src:src,raw:out.raw,grid:out.grid,roles:out.grid?autoRoles(out.grid):null,mes:out.cx?out.cx.y+"-"+p2(out.cx.m):ym};
     cm(out.rows.length?"Se reconocieron "+out.rows.length+" registro(s). Revísalos antes de confirmar."+(src.indexOf("OCR")>=0?" La lectura por OCR puede tener errores: revisa cada fila.":""):out.grid?"No pude reconocer los turnos automáticamente. Abajo puedes indicar qué columna es cada dato (fecha, entrada, salida, horas…); nada se inventa.":"No pude reconocer turnos en este documento. Puedes agregar los registros manualmente.");
   }catch(e){
     console.error("Importar registro del empleador:",e);
@@ -852,11 +887,13 @@ function rDraft(){
   if(d.grid&&(!d.rows.length||d.remap))h+=rMap(d);
   else if(d.grid)h+='<button class="sec" type="button" data-act="c-remap" style="margin-top:0;margin-bottom:10px">Reasignar columnas</button>';
   if(d.raw&&!d.rows.length)h+='<div class="card"><b>Texto que se leyó del documento</b><p class="mu">Esto es lo que el lector pudo leer. Puedes corregirlo aquí (una línea por día, por ejemplo <i>01/09 08:00 20:00 12:00</i>) y tocar «Interpretar este texto». No se inventa nada: solo se usan fechas y horas que estén escritas.</p><textarea id="c-raw" aria-label="Texto leído" style="min-height:160px">'+esc(d.raw.slice(0,6000))+'</textarea><button class="sec" type="button" data-act="c-txt">Interpretar este texto</button></div>';
+  if(d.rows.length){var sm=0,nrv=0;d.rows.forEach(function(r){sm+=r.rec!=null?r.rec:(r.ini&&r.fin?(dmin2(r.fin)-dmin2(r.ini)+1440)%1440-(r.des||0):0);if(r.rv)nrv++});
+    h+='<div class="card"><b>Verificación de la lectura</b><p class="mu">'+d.rows.length+' día(s) con registro. Suma de horas leídas: '+HM(sm)+(d.th!=null?'. El documento indica '+HM(d.th)+(Math.abs(sm-d.th)<=2?' ✔ coincide.':' ✘ NO coincide: hay filas mal leídas o que faltan, revisa cada día.'):'.')+(nrv?' '+nrv+' fila(s) en rojo: la fecha o las horas no cuadran entre sí.':'')+'</p></div>';}
   h+='<div class="tw"><table><thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Horas reconocidas (h:mm)</th><th class="n">Desc. (min)</th><th class="n">Tarifa/h</th><th class="n">Remuneración informada</th><th></th></tr></thead><tbody>';
   d.rows.forEach(function(r,i){
     h+='<tr><td><input type="date" data-c="f" data-i="'+i+'" value="'+r.f+'"'+(r.f?"":' class="inv"')+' aria-label="Fecha"></td>'+
-    '<td><input type="time" data-c="ini" data-i="'+i+'" value="'+r.ini+'" aria-label="Entrada"></td>'+
-    '<td><input type="time" data-c="fin" data-i="'+i+'" value="'+r.fin+'" aria-label="Salida"></td>'+
+    '<td><input type="time" data-c="ini" data-i="'+i+'" value="'+r.ini+'"'+(r.rv?' class="inv"':'')+' aria-label="Entrada"></td>'+
+    '<td><input type="time" data-c="fin" data-i="'+i+'" value="'+r.fin+'"'+(r.rv?' class="inv"':'')+' aria-label="Salida"></td>'+
     '<td><input type="text" inputmode="text" data-c="rec" data-i="'+i+'" value="'+HM(r.rec)+'" placeholder="h:mm" aria-label="Horas reconocidas"></td>'+
     '<td><input type="number" inputmode="numeric" min="0" data-c="des" data-i="'+i+'" value="'+(r.des||"")+'" aria-label="Descuento en minutos"></td>'+
     '<td><input type="number" inputmode="decimal" min="0" data-c="tar" data-i="'+i+'" value="'+(r.tar==null?"":r.tar)+'" aria-label="Tarifa por hora"></td>'+
@@ -920,7 +957,7 @@ function cmpClick(a,b){
   else if(a==="c-ok")confirmar();
   else if(a==="c-txt"){var tx=$("c-raw")?$("c-raw").value:"";draft.raw=tx;var cx2=ctxFrom(tx),r2=interp(txt2grid(tx),+ym.slice(0,4),tx);
     if(!r2.rows.length){cm("Con ese texto no se reconoció ninguna fila. Cada día necesita una fecha (01/09, 1-sep o el día si el mes está en el título) y al menos entrada y salida, o las horas.");render();return}
-    draft.rows=r2.rows;if(r2.tot&&r2.tot.mon!=null)draft.tot.mon=r2.tot.mon;if(cx2)draft.mes=cx2.y+"-"+p2(cx2.m);cm("Se reconocieron "+r2.rows.length+" registro(s). Revísalos antes de confirmar.");render()}
+    draft.rows=r2.rows;if(r2.tot&&r2.tot.mon!=null)draft.tot.mon=r2.tot.mon;draft.th=totHoras(tx);if(cx2)draft.mes=cx2.y+"-"+p2(cx2.m);cm("Se reconocieron "+r2.rows.length+" registro(s). Revísalos antes de confirmar.");render()}
   else if(a==="c-map")mapAplicar();
   else if(a==="c-remap"){draft.remap=true;render()}
   else if(a==="c-go"){ym=b.getAttribute("data-m");sel=null;cm("");render()}
@@ -949,7 +986,7 @@ document.addEventListener("change",function(e){
   var r=draft.rows[+t.getAttribute("data-i")];if(!r)return;
   var val=t.value,num=function(x){x=parseFloat(x);return isFinite(x)&&x>=0?x:null};
   if(c==="f"){r.f=okDate(val)?val:"";t.className=r.f?"":"inv"}
-  else if(c==="ini"||c==="fin")r[c]=okT(val)?val:"";
+  else if(c==="ini"||c==="fin"){r[c]=okT(val)?val:"";r.rv=0;t.className=""}
   else if(c==="rec"){var hh=hmin(val);r.rec=hh;if(val.trim()!==""&&hh==null)toast("Escribe las horas como 12, 12,5 o 12:30.")}
   else if(c==="des")r.des=num(val)||0;
   else if(c==="tar"||c==="mon")r[c]=val===""?null:num(val);

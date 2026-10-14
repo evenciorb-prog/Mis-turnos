@@ -539,7 +539,7 @@ async function leerEmp(file){
       grid=txt2grid(await ocrImg(cv));src="imagen (OCR)";
     }
     var r=interp(grid,+ym.slice(0,4));
-    draft={rows:r.rows,tot:r.tot,meta:r.meta,src:src};
+    draft={rows:r.rows,tot:r.tot,meta:r.meta,src:src,raw:grid.map(function(x){return x.join("  ")}).join("\n")};
     cm(r.rows.length?"Se reconocieron "+r.rows.length+" registro(s). Revísalos antes de confirmar."+(src.indexOf("OCR")>=0?" La lectura por OCR puede tener errores: revisa cada fila.":""):"No pude reconocer turnos en este documento. Puedes agregar los registros manualmente.");
   }catch(e){
     console.error("Importar registro del empleador:",e);
@@ -653,6 +653,7 @@ function rCmp(){
 }
 function rDraft(){
   var d=draft,h='<div class="card"><b>Revisa los datos del empleador</b><p class="mu">Fuente: '+esc(d.src||"ingreso manual")+(d.meta.nombre?". Trabajador: "+esc(d.meta.nombre):"")+(d.meta.periodo?". Período: "+esc(d.meta.periodo):"")+'. Corrige lo que haga falta. No se compara nada hasta que confirmes. Lo que el documento no traía queda en blanco.</p></div>';
+  if(d.raw&&!d.rows.length)h+='<div class="card"><b>Texto que se leyó del documento</b><p class="mu">Esto es lo que el lector pudo leer. Si está vacío o ilegible, prueba con una foto más nítida y de frente; si se lee bien pero no se reconoció, envíalo para mejorar el reconocimiento.</p><textarea readonly aria-label="Texto leído" style="min-height:140px">'+esc(d.raw.slice(0,4000))+'</textarea></div>';
   h+='<div class="tw"><table><thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Horas reconocidas (h:mm)</th><th class="n">Desc. (min)</th><th class="n">Tarifa/h</th><th class="n">Remuneración informada</th><th></th></tr></thead><tbody>';
   d.rows.forEach(function(r,i){
     h+='<tr><td><input type="date" data-c="f" data-i="'+i+'" value="'+r.f+'"'+(r.f?"":' class="inv"')+' aria-label="Fecha"></td>'+

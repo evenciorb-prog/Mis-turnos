@@ -326,8 +326,19 @@ function hmin(s){
 }
 function dmin(s){s=String(s==null?"":s).trim();return /^\d+$/.test(s)?+s:hmin(s)}
 var HK=[["f",/fecha|d[ií]a\b/],["ini",/entrada|inicio|ingreso|desde|hora\s*ent/],["fin",/salida|t[eé]rmino|termino|hasta|hora\s*sal|\bfin\b/],["des",/descuent|colaci|descanso|atraso/],["rd",/diurn/],["rn",/noctur/],["tar",/tarifa|valor\s*(por\s*)?(hora|hr)|\$\s*\/\s*h/],["rec",/^\W*total\W*(horas?|hrs?)?\W*$|total\s*hor/],["mon",/monto|total\s*(a\s*)?pag|l[ií]quido|bruto|remuneraci|haber|importe|pago|valor/],["rec",/reconocid|remunerad|pagad|horas|hrs|duraci|trabajad/]];
+/* Corrige los errores típicos del OCR en horas: O→0, l/I/|→1, S→5; 08.00 / 8h00 / 0800 → 08:00; "8 a 20" → 08:00 20:00 */
+function fixLine(t){
+  t=String(t==null?"":t);
+  t=t.replace(/(^|[^A-Za-z0-9])([0-9OolI|S]{1,2}):([0-9OolI|S]{2})(?![A-Za-z0-9])/g,function(m,p,h,n){var f=function(z){return z.replace(/[Oo]/g,"0").replace(/[lI|]/g,"1").replace(/S/g,"5")};return p+f(h)+":"+f(n)});
+  t=t.replace(/[A-Za-z0-9|]+/g,function(w){if(!/\d/.test(w)||/[A-Za-z]{2,}/.test(w.replace(/[OolIS|]/g,"")))return w;return w.replace(/[Oo]/g,"0").replace(/[lI|]/g,"1").replace(/S/g,"5")});
+  t=t.replace(/\b(\d{1,2})\s*[h.]\s*(\d{2})\b(?![\d\/-])/gi,function(m,a,b){return +a<24&&+b<60?a+":"+b:m});
+  t=t.replace(/(^|[^\d:.\/-])([01]\d[0-5]\d|2[0-3][0-5]\d)(?![\d:.\/-])/g,function(m,p,a){return /^20[12]\d$/.test(a)?m:p+a.slice(0,2)+":"+a.slice(2)});
+  t=t.replace(/\b(\d{1,2})\s*(?:a|al|-|–)\s*(\d{1,2})\s*(?:h|hrs?|horas)\b/gi,function(m,a,b){return +a<24&&+b<=24?p2(+a)+":00 "+p2(+b%24)+":00":m});
+  t=t.replace(/\b(\d{1,2})\s+(?:a|al)\s+(\d{1,2})\b(?![\/:.-])/gi,function(m,a,b){return +a<24&&+b<=24&&+a!==+b?p2(+a)+":00 "+p2(+b%24)+":00":m});
+  return t;
+}
 function hrow(line,y0,cx){
-  var f=pdt(line,y0),rest=null;
+  line=fixLine(line);var f=pdt(line,y0),rest=null;
   if(!f&&cx){var dm=/^\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(\d{1,2})(?![\d:.,\/-])\s*(?:(?:lun|mar|mi[eé]|jue|vie|s[aá]b|dom)[a-záéíóú]*\.?\s*)?(?=\D*\d{1,2}:\d{2})/i.exec(line);
     if(dm){var f2=cx.y+"-"+p2(cx.m)+"-"+p2(+dm[1]);if(okDate(f2)){f=f2;rest=line.slice(dm[0].length)}}}
   if(!f)return null;
@@ -470,7 +481,7 @@ function mapRows(G,roles,cx,y0){
   G.slice(1).forEach(function(r){
     var f="",ini="",fin="",rec=null,des=0,mon=null,tar=null,line=r.join(" ");
     roles.forEach(function(ro,j){
-      var c=r[j]||"";if(!ro)return;var tm=c.match(/\d{1,2}[:.]\d{2}/g)||[];
+      var c=fixLine(r[j]||"");if(!ro)return;var tm=c.match(/\d{1,2}[:.]\d{2}/g)||[];
       if(ro==="f")f=pdt(c,y0,cx);
       else if(ro==="ini")ini=tp(tm[0]||c);
       else if(ro==="fin")fin=tp(tm[tm.length-1]||c);
@@ -600,16 +611,58 @@ async function decodeImg(buf,fmt,mime){
 }
 
 /* --- OCR --- */
+/* Preparación de la imagen para tablas: gris, umbral automático (Otsu) y borrado de las líneas de la cuadrícula,
+   que confunden al OCR y hacen que "lea" el encabezado pero no las filas. */
+function prepTabla(cv){
+  try{
+    var w=cv.width,h=cv.height,k=1;
+    if(w<1800)k=Math.min(2,1800/w);
+    var c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);
+    var x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height);x.drawImage(cv,0,0,c.width,c.height);
+    var W=c.width,H=c.height,id=x.getImageData(0,0,W,H),d=id.data,g=new Uint8Array(W*H),i,hist=new Array(256).fill(0);
+    for(i=0;i<W*H;i++){var v=(d[i*4]*0.299+d[i*4+1]*0.587+d[i*4+2]*0.114)|0;g[i]=v;hist[v]++}
+    var tot=W*H,sum=0,sB=0,wB=0,mx=0,th=128,t;
+    for(t=0;t<256;t++)sum+=t*hist[t];
+    for(t=0;t<256;t++){wB+=hist[t];if(!wB)continue;var wF=tot-wB;if(!wF)break;sB+=t*hist[t];var mB=sB/wB,mF=(sum-sB)/wF,bt=wB*wF*(mB-mF)*(mB-mF);if(bt>mx){mx=bt;th=t}}
+    var b=new Uint8Array(W*H);for(i=0;i<W*H;i++)b[i]=g[i]<th?1:0;
+    var y,x0,run,minH=Math.round(W*0.06),minV=Math.round(H*0.04),del=new Uint8Array(W*H);
+    for(y=0;y<H;y++){run=0;for(x0=0;x0<=W;x0++){if(x0<W&&b[y*W+x0])run++;else{if(run>=minH)for(var q=x0-run;q<x0;q++)del[y*W+q]=1;run=0}}}
+    for(x0=0;x0<W;x0++){run=0;for(y=0;y<=H;y++){if(y<H&&b[y*W+x0])run++;else{if(run>=minV)for(var r=y-run;r<y;r++)del[r*W+x0]=1;run=0}}}
+    for(i=0;i<W*H;i++){var o=(b[i]&&!del[i])?0:255;d[i*4]=d[i*4+1]=d[i*4+2]=o;d[i*4+3]=255}
+    x.putImageData(id,0,0);return c;
+  }catch(e){return null}
+}
+function toBlob(c){return new Promise(function(ok){try{c.toBlob(function(b){ok(b)},"image/png")}catch(e){ok(null)}})}
+function puntaje(res){
+  var g=null,n=0;
+  try{g=gridFromWords(res.words);if(g){var cx=ctxFrom(res.text||""),m=mapRows(g,autoRoles(g),cx,new Date().getFullYear());n=m.rows.length}}catch(e){}
+  return n*100+(g?g.length:0)
+}
 async function ocr(src){
   await need("tess");
-  var blob=null;
-  if(src&&src.toBlob){blob=await new Promise(function(ok){try{src.toBlob(function(b){ok(b)},"image/png")}catch(e){ok(null)}})}
+  var orig=null,prep=null,worker=null,best=null,bs=-1,modo=[],k,pasadas;
+  if(src&&src.toBlob){orig=await toBlob(src);prep=src.getContext?prepTabla(src):null;var pb=prep?await toBlob(prep):null;
+    pasadas=[];
+    if(pb)pasadas.push({img:pb,psm:"6",n:"tabla"});
+    pasadas.push({img:orig||src,psm:"6",n:"bloque"});
+    pasadas.push({img:orig||src,psm:"4",n:"columnas"});
+    if(pb)pasadas.push({img:pb,psm:"11",n:"disperso"});
+  }else pasadas=[{img:src,psm:"6",n:"bloque"},{img:src,psm:"4",n:"columnas"}];
   try{
-    var r=await Tesseract.recognize(blob||src,"spa",{logger:function(m){if(m&&m.status==="recognizing text")cm("Leyendo la imagen… "+Math.round(m.progress*100)+"%")}});
-    return {text:r.data.text||"",words:getWords(r.data)};
+    worker=await Tesseract.createWorker("spa",1,{logger:function(m){if(m&&m.status==="recognizing text")cm("Leyendo la imagen ("+(k+1)+"/"+pasadas.length+")… "+Math.round(m.progress*100)+"%")}});
+    for(k=0;k<pasadas.length;k++){
+      await worker.setParameters({tessedit_pageseg_mode:pasadas[k].psm,preserve_interword_spaces:"1"});
+      var r=await worker.recognize(pasadas[k].img,{},{text:true,blocks:true,tsv:true});
+      var res={text:r.data.text||"",words:getWords(r.data)},sc=puntaje(res);
+      modo.push(pasadas[k].n+":"+Math.floor(sc/100));
+      if(sc>bs||!best){bs=sc;best=res}
+      if(sc>=500)break;
+    }
+    best.modo=modo.join(" ");
+    return best;
   }catch(e){
     throw mkErr("ocr","El lector de texto (OCR) no pudo procesar la imagen. La primera vez descarga el idioma español, así que necesita buena conexión; reintenta."+VH(),"OCR: "+(errTxt(e)||"sin detalle: el navegador no dejó iniciar el lector (workers bloqueados)"));
-  }
+  }finally{try{if(worker)await worker.terminate()}catch(e){}}
 }
 async function ocrImg(cv){return ocr(cv)}
 
@@ -798,7 +851,7 @@ function rDraft(){
   var d=draft,h='<div class="card"><b>Revisa los datos del empleador</b><p class="mu">Fuente: '+esc(d.src||"ingreso manual")+(d.meta.nombre?". Trabajador: "+esc(d.meta.nombre):"")+(d.meta.periodo?". Período: "+esc(d.meta.periodo):"")+'. Corrige lo que haga falta. No se compara nada hasta que confirmes. Lo que el documento no traía queda en blanco.</p></div>';
   if(d.grid&&(!d.rows.length||d.remap))h+=rMap(d);
   else if(d.grid)h+='<button class="sec" type="button" data-act="c-remap" style="margin-top:0;margin-bottom:10px">Reasignar columnas</button>';
-  if(d.raw&&!d.rows.length)h+='<div class="card"><b>Texto que se leyó del documento</b><p class="mu">Esto es lo que el lector pudo leer. Si está vacío o ilegible, prueba con una foto más nítida y de frente; si se lee bien pero no se reconoció, envíalo para mejorar el reconocimiento.</p><textarea readonly aria-label="Texto leído" style="min-height:140px">'+esc(d.raw.slice(0,4000))+'</textarea></div>';
+  if(d.raw&&!d.rows.length)h+='<div class="card"><b>Texto que se leyó del documento</b><p class="mu">Esto es lo que el lector pudo leer. Puedes corregirlo aquí (una línea por día, por ejemplo <i>01/09 08:00 20:00 12:00</i>) y tocar «Interpretar este texto». No se inventa nada: solo se usan fechas y horas que estén escritas.</p><textarea id="c-raw" aria-label="Texto leído" style="min-height:160px">'+esc(d.raw.slice(0,6000))+'</textarea><button class="sec" type="button" data-act="c-txt">Interpretar este texto</button></div>';
   h+='<div class="tw"><table><thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Horas reconocidas (h:mm)</th><th class="n">Desc. (min)</th><th class="n">Tarifa/h</th><th class="n">Remuneración informada</th><th></th></tr></thead><tbody>';
   d.rows.forEach(function(r,i){
     h+='<tr><td><input type="date" data-c="f" data-i="'+i+'" value="'+r.f+'"'+(r.f?"":' class="inv"')+' aria-label="Fecha"></td>'+
@@ -865,6 +918,9 @@ function cmpClick(a,b){
   else if(a==="c-rm"){draft.rows.splice(i,1);render()}
   else if(a==="c-no"){draft=null;cm("");render()}
   else if(a==="c-ok")confirmar();
+  else if(a==="c-txt"){var tx=$("c-raw")?$("c-raw").value:"";draft.raw=tx;var cx2=ctxFrom(tx),r2=interp(txt2grid(tx),+ym.slice(0,4),tx);
+    if(!r2.rows.length){cm("Con ese texto no se reconoció ninguna fila. Cada día necesita una fecha (01/09, 1-sep o el día si el mes está en el título) y al menos entrada y salida, o las horas.");render();return}
+    draft.rows=r2.rows;if(r2.tot&&r2.tot.mon!=null)draft.tot.mon=r2.tot.mon;if(cx2)draft.mes=cx2.y+"-"+p2(cx2.m);cm("Se reconocieron "+r2.rows.length+" registro(s). Revísalos antes de confirmar.");render()}
   else if(a==="c-map")mapAplicar();
   else if(a==="c-remap"){draft.remap=true;render()}
   else if(a==="c-go"){ym=b.getAttribute("data-m");sel=null;cm("");render()}
